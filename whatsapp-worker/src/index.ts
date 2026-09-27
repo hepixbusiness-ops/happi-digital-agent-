@@ -6,7 +6,7 @@ import makeWASocket, {
 import type { Boom } from '@hapi/boom';
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
-import { onIncoming } from './handle.ts';
+import { onIncoming, onOwnerReply } from './handle.ts';
 import { extractContent, isPrivateChat } from './parse.ts';
 
 const AUTH_DIR = process.env.AUTH_DIR ?? './auth';
@@ -78,10 +78,17 @@ async function start() {
     if (type !== 'notify') return; // ignore la synchronisation d'historique
     for (const m of messages) {
       const jid = m.key.remoteJid;
-      if (m.key.fromMe || !isPrivateChat(jid)) continue;
+      if (!isPrivateChat(jid)) continue;
       const content = extractContent(m);
       if (!content) continue;
       try {
+        if (m.key.fromMe) {
+          // Les réponses de l'IA arrivent en 'append' : un fromMe en 'notify'
+          // vient donc du téléphone (ou de WhatsApp Web) du propriétaire.
+          const alt = m.key.remoteJidAlt;
+          await onOwnerReply({ jids: alt && alt !== jid ? [jid, alt] : [jid], key: m.key, content });
+          continue;
+        }
         await onIncoming(sock, { jid, key: m.key, name: m.pushName ?? null, content });
       } catch (err) {
         console.error('[whatsapp] échec traitement', m.key.id, err);

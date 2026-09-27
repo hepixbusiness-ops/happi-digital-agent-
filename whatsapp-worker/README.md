@@ -49,8 +49,11 @@ En local, pour tester : `npm install` puis `npm run dev`.
 
 ## Au quotidien
 
-- **Reprendre une conversation à la main** : l'IA se tait dès que
-  `wa_conversations.status = 'human'` (automatique quand elle transfère).
+- **Reprendre une conversation à la main** : réponds simplement depuis ton
+  téléphone (ou WhatsApp Web). Dès ton premier message, l'IA se tait pour ce
+  client (`wa_conversations.status = 'human'`). Même chose quand l'IA transfère
+  elle-même, ou quand c'est toi qui écris en premier à quelqu'un.
+  Limite : un message envoyé pendant que le worker était arrêté n'est pas vu.
 - **Rendre la main à l'IA** : dans Supabase,
   `update wa_conversations set status = 'bot' where wa_id = '...';`
 - **Session perdue** (`❌ Session déconnectée`) : supprimer `auth/` et relancer

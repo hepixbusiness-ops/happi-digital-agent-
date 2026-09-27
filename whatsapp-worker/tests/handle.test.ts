@@ -4,7 +4,7 @@ const { fakeDb, tables, resetDb } = await vi.hoisted(async () => await import('.
 vi.mock('../src/db.ts', () => ({ db: fakeDb }));
 vi.mock('../src/agent.ts', () => ({ runAgent: vi.fn() }));
 
-import { onIncoming } from '../src/handle.ts';
+import { onIncoming, onOwnerReply } from '../src/handle.ts';
 import { runAgent } from '../src/agent.ts';
 
 const JID = '237699000000@s.whatsapp.net';
@@ -171,5 +171,69 @@ describe('transfert à un humain', () => {
     expect(tables.wa_conversations[0].status).toBe('human');
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
+  });
+});
+
+describe('reprise par le propriétaire depuis son téléphone', () => {
+  const owner = (content: string, jids = [JID], id = `OWN${++n}`) =>
+    onOwnerReply({ jids, key: { id, remoteJid: jids[0], fromMe: true }, content });
+
+  it("annule la réponse en attente et l'IA se tait ensuite", async () => {
+    agent.mockResolvedValue({ reply: 'ok', handoff: null });
+    await onIncoming(sock, incoming('Bonjour, vous faites des sites ?'));
+    await vi.advanceTimersByTimeAsync(1_000);
+    await owner('Oui ! Je vous appelle dans 5 min.');
+    await settle();
+
+    expect(agent).not.toHaveBeenCalled();
+    expect(sock.sendMessage).not.toHaveBeenCalled();
+    expect(tables.wa_conversations[0].status).toBe('human');
+    expect(tables.wa_messages.at(-1)).toMatchObject({ role: 'assistant', content: 'Oui ! Je vous appelle dans 5 min.' });
+
+    await onIncoming(sock, incoming('Merci'));
+    await settle();
+    expect(agent).not.toHaveBeenCalled();
+  });
+
+  it("n'envoie pas la réponse si le propriétaire reprend pendant que Claude rédige", async () => {
+    agent.mockImplementation(async () => {
+      await owner('Je prends le relais.');
+      return { reply: 'Réponse IA', handoff: null };
+    });
+    await onIncoming(sock, incoming('Bonjour'));
+    await settle();
+
+    expect(agent).toHaveBeenCalledOnce();
+    expect(sock.sendMessage).not.toHaveBeenCalled();
+    expect(tables.wa_messages.some((r) => r.content === 'Réponse IA')).toBe(false);
+  });
+
+  it("une conversation lancée par le propriétaire reste en mode humain", async () => {
+    agent.mockResolvedValue({ reply: 'ok', handoff: null });
+    await owner('Salut, voici le devis.');
+    await onIncoming(sock, incoming('Merci, je regarde'));
+    await settle();
+
+    expect(tables.wa_conversations).toHaveLength(1);
+    expect(tables.wa_conversations[0].status).toBe('human');
+    expect(agent).not.toHaveBeenCalled();
+  });
+
+  it('retrouve la conversation connue sous son identifiant LID', async () => {
+    const LID = '123456789@lid';
+    agent.mockResolvedValue({ reply: 'ok', handoff: null });
+    await onIncoming(sock, { ...incoming('Bonjour'), jid: LID });
+    await owner('Bonjour, Pharel ici.', [JID, LID]);
+    await settle();
+
+    expect(tables.wa_conversations).toHaveLength(1);
+    expect(tables.wa_conversations[0]).toMatchObject({ wa_id: LID, status: 'human' });
+    expect(agent).not.toHaveBeenCalled();
+  });
+
+  it('ignore un message du propriétaire reçu deux fois', async () => {
+    await owner('Bonjour', [JID], 'OWNDUP');
+    await owner('Bonjour', [JID], 'OWNDUP');
+    expect(tables.wa_messages).toHaveLength(1);
   });
 });

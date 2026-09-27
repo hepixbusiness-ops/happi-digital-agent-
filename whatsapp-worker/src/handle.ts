@@ -37,12 +37,7 @@ export async function onIncoming(sock: WASocket, msg: Incoming) {
   }
 
   // 3. Conversation reprise par un humain : l'IA se tait
-  const { data: convo } = await db
-    .from('wa_conversations')
-    .select('status')
-    .eq('wa_id', msg.jid)
-    .single();
-  if (convo?.status === 'human') return;
+  if (await isHuman(msg.jid)) return;
 
   await sock.readMessages([msg.key]).catch(() => {});
 
@@ -55,6 +50,39 @@ export async function onIncoming(sock: WASocket, msg: Incoming) {
       respond(sock, msg.jid).catch((err) => console.error('[agent] échec', msg.jid, err));
     }, DEBOUNCE_MS),
   );
+}
+
+/**
+ * Message envoyé à la main depuis le téléphone du numéro : l'humain reprend
+ * la conversation et l'IA se tait (réactivation : status = 'bot').
+ */
+export async function onOwnerReply(msg: { jids: string[]; key: WAMessageKey; content: string }) {
+  // Baileys 7 : le même client peut apparaître en @lid ou en @s.whatsapp.net
+  for (const jid of msg.jids) {
+    clearTimeout(pending.get(jid));
+    pending.delete(jid);
+  }
+
+  const { data: known } = await db.from('wa_conversations').select('wa_id').in('wa_id', msg.jids);
+  const jid = (known as { wa_id: string }[] | null)?.[0]?.wa_id ?? msg.jids[0];
+  const now = new Date().toISOString();
+
+  await db.from('wa_conversations').upsert(
+    { wa_id: jid, status: 'human', updated_at: now },
+    { onConflict: 'wa_id' },
+  );
+  const { error } = await db.from('wa_messages').insert({
+    wa_id: jid,
+    wa_message_id: msg.key.id,
+    role: 'assistant',
+    content: msg.content,
+  });
+  if (error && error.code !== '23505') throw error;
+}
+
+async function isHuman(jid: string) {
+  const { data } = await db.from('wa_conversations').select('status').eq('wa_id', jid).single();
+  return data?.status === 'human';
 }
 
 async function respond(sock: WASocket, jid: string) {
@@ -77,6 +105,8 @@ async function respond(sock: WASocket, jid: string) {
     // Délai "humain" proportionnel à la longueur : réduit le risque de détection
     await sleep(Math.min(1200 + reply.length * 25, 7000));
     await sock.sendPresenceUpdate('paused', jid);
+    // L'humain a pu reprendre la main pendant que Claude rédigeait
+    if (await isHuman(jid)) return;
     await sock.sendMessage(jid, { text: reply });
     await db.from('wa_messages').insert({ wa_id: jid, role: 'assistant', content: reply });
   }
