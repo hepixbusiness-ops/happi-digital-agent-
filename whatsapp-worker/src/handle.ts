@@ -3,7 +3,9 @@ import { db } from './db.ts';
 import { runAgent, type ChatTurn } from './agent.ts';
 
 const HISTORY_LIMIT = 20;  // messages envoyés à Claude
-const DEBOUNCE_MS = 3000;  // regroupe les messages envoyés en rafale
+// Attente après le dernier message du client avant de répondre (regroupe aussi
+// les rafales). + rédaction et frappe (~10 s) : réponse vers 90 s au total.
+const DEBOUNCE_MS = Number(process.env.REPLY_WAIT_MS ?? 80_000);
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const pending = new Map<string, NodeJS.Timeout>();

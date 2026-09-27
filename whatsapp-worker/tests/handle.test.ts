@@ -15,7 +15,7 @@ let n = 0;
 const incoming = (content: string, id = `MSG${++n}`) => ({
   jid: JID, key: { id, remoteJid: JID, fromMe: false }, name: 'Aïcha', content,
 });
-const settle = () => vi.advanceTimersByTimeAsync(15_000); // debounce + délai de frappe
+const settle = () => vi.advanceTimersByTimeAsync(100_000); // debounce + délai de frappe
 const sent = () => sock.sendMessage.mock.calls.map((c: any[]) => [c[0], c[1].text]);
 
 beforeEach(() => {
@@ -48,16 +48,18 @@ describe('flux de réponse', () => {
   it('ne répond pas avant la fin du debounce', async () => {
     agent.mockResolvedValue({ reply: 'ok', handoff: null });
     await onIncoming(sock, incoming('Bonjour'));
-    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(79_000);
     expect(agent).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(agent).toHaveBeenCalledOnce();
   });
 
   it('une rafale de 3 messages donne UNE seule réponse avec les 3 en contexte', async () => {
     agent.mockResolvedValue({ reply: 'Le sac noir est à 15 000 FCFA.', handoff: null });
     await onIncoming(sock, incoming('Bonsoir'));
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     await onIncoming(sock, incoming('svp'));
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     await onIncoming(sock, incoming('le sac noir c combien'));
     await settle();
 
@@ -181,7 +183,7 @@ describe('reprise par le propriétaire depuis son téléphone', () => {
   it("annule la réponse en attente et l'IA se tait ensuite", async () => {
     agent.mockResolvedValue({ reply: 'ok', handoff: null });
     await onIncoming(sock, incoming('Bonjour, vous faites des sites ?'));
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(45_000);
     await owner('Oui ! Je vous appelle dans 5 min.');
     await settle();
 

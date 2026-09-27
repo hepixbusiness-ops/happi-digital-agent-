@@ -54,6 +54,9 @@ En local, pour tester : `npm install` puis `npm run dev`.
   client (`wa_conversations.status = 'human'`). Même chose quand l'IA transfère
   elle-même, ou quand c'est toi qui écris en premier à quelqu'un.
   Limite : un message envoyé pendant que le worker était arrêté n'est pas vu.
+- **Délai de réponse** : l'IA attend 80 s après le dernier message du client
+  (chaque nouveau message relance l'attente), puis rédige et « tape » : réponse
+  vers 90 s. Réglable avec `REPLY_WAIT_MS` dans `.env`.
 - **Rendre la main à l'IA** : dans Supabase,
   `update wa_conversations set status = 'bot' where wa_id = '...';`
 - **Session perdue** (`❌ Session déconnectée`) : supprimer `auth/` et relancer
