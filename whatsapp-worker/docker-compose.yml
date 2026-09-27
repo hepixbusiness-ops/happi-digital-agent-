@@ -1,0 +1,9 @@
+services:
+  whatsapp-worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      AUTH_DIR: /app/auth
+    volumes:
+      - ./auth:/app/auth   # session WhatsApp : à conserver, sinon il faut rescanner
