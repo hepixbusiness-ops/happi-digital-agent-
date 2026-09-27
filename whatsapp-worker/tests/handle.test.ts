@@ -4,7 +4,7 @@ const { fakeDb, tables, resetDb } = await vi.hoisted(async () => await import('.
 vi.mock('../src/db.ts', () => ({ db: fakeDb }));
 vi.mock('../src/agent.ts', () => ({ runAgent: vi.fn() }));
 
-import { onIncoming, onOwnerReply } from '../src/handle.ts';
+import { onIncoming, onOwnerReply, resumePending, setSocket } from '../src/handle.ts';
 import { runAgent } from '../src/agent.ts';
 
 const JID = '237699000000@s.whatsapp.net';
@@ -237,5 +237,64 @@ describe('reprise par le propriétaire depuis son téléphone', () => {
     await owner('Bonjour', [JID], 'OWNDUP');
     await owner('Bonjour', [JID], 'OWNDUP');
     expect(tables.wa_messages).toHaveLength(1);
+  });
+});
+
+describe('redémarrage et reconnexion', () => {
+  const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+  const seed = async (wa_id: string, lastRole: 'user' | 'assistant', lastInboundMsAgo: number, status = 'bot') => {
+    tables.wa_conversations.push({ wa_id, status, last_inbound_at: ago(lastInboundMsAgo) });
+    await fakeDb.from('wa_messages').insert({ wa_id, wa_message_id: `seed-${wa_id}`, role: 'user', content: 'Bonjour' });
+    if (lastRole === 'assistant') await fakeDb.from('wa_messages').insert({ wa_id, role: 'assistant', content: 'Salut' });
+  };
+
+  it("reprend un client resté sans réponse, au moment prévu à l'origine", async () => {
+    await seed(JID, 'user', 30_000);
+    agent.mockResolvedValue({ reply: 'Me voici', handoff: null });
+    setSocket(sock);
+    await resumePending();
+
+    await vi.advanceTimersByTimeAsync(49_000); // 80 s - 30 s déjà écoulées
+    expect(agent).not.toHaveBeenCalled();
+    await settle();
+    expect(sent()).toEqual([[JID, 'Me voici']]);
+  });
+
+  it('ignore les conversations déjà répondues, reprises par un humain ou trop anciennes', async () => {
+    await seed('a@s.whatsapp.net', 'assistant', 30_000);
+    await seed('b@s.whatsapp.net', 'user', 30_000, 'human');
+    await seed('c@s.whatsapp.net', 'user', 7 * 3600_000);
+    setSocket(sock);
+    await resumePending();
+    await settle();
+    expect(agent).not.toHaveBeenCalled();
+  });
+
+  it('un message reçu pendant l’arrêt obtient une réponse rapide', async () => {
+    agent.mockResolvedValue({ reply: 'Désolé pour l’attente', handoff: null });
+    await onIncoming(sock, { ...incoming('Vous êtes ouverts ?'), at: Date.now() - 120_000 });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(agent).toHaveBeenCalledOnce();
+  });
+
+  it("après une reconnexion, la réponse part par le nouveau socket", async () => {
+    agent.mockResolvedValue({ reply: 'ok', handoff: null });
+    await onIncoming(sock, incoming('Bonjour'));
+    const fresh = { ...sock, sendMessage: vi.fn(async () => ({})) };
+    setSocket(fresh);
+    await settle();
+    expect(sock.sendMessage).not.toHaveBeenCalled();
+    expect(fresh.sendMessage).toHaveBeenCalledOnce();
+  });
+
+  it("un message de l'IA relivré par WhatsApp n'est pas pris pour une reprise humaine", async () => {
+    sock.sendMessage = vi.fn(async () => ({ key: { id: 'BOT1' } }));
+    agent.mockResolvedValue({ reply: 'Bonjour !', handoff: null });
+    await onIncoming(sock, incoming('Bonjour'));
+    await settle();
+    await onOwnerReply({ jids: [JID], key: { id: 'BOT1', remoteJid: JID, fromMe: true }, content: 'Bonjour !' });
+
+    expect(tables.wa_conversations[0].status).toBe('bot');
+    expect(tables.wa_messages.filter((r) => r.role === 'assistant')).toHaveLength(1);
   });
 });

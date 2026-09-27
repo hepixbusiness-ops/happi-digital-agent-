@@ -21,6 +21,7 @@ class Query implements PromiseLike<{ data: any; error: any }> {
   select(cols?: string) { this.op = 'select'; this.cols = cols?.split(',').map((c) => c.trim()); return this; }
   update(p: Row) { this.op = 'update'; this.patch = p; return this; }
   eq(c: string, v: any) { this.filters.push((r) => r[c] === v); return this; }
+  gte(c: string, v: any) { this.filters.push((r) => r[c] != null && r[c] >= v); return this; }
   in(c: string, vs: any[]) { this.filters.push((r) => vs.includes(r[c])); return this; }
   order(col: string, o: { ascending: boolean }) { this.orderBy = { col, asc: o.ascending }; return this; }
   limit(n: number) { this.max = n; return this; }

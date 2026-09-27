@@ -53,10 +53,14 @@ En local, pour tester : `npm install` puis `npm run dev`.
   téléphone (ou WhatsApp Web). Dès ton premier message, l'IA se tait pour ce
   client (`wa_conversations.status = 'human'`). Même chose quand l'IA transfère
   elle-même, ou quand c'est toi qui écris en premier à quelqu'un.
-  Limite : un message envoyé pendant que le worker était arrêté n'est pas vu.
 - **Délai de réponse** : l'IA attend 80 s après le dernier message du client
   (chaque nouveau message relance l'attente), puis rédige et « tape » : réponse
   vers 90 s. Réglable avec `REPLY_WAIT_MS` dans `.env`.
+- **Redémarrage ou coupure réseau** : rien n'est perdu. Au retour, l'agent
+  reprend les clients en attente de réponse et traite les messages reçus
+  pendant la coupure (jusqu'à 6 h en arrière ; au-delà, il ne répond pas pour
+  ne pas relancer une vieille conversation). Tes propres réponses envoyées
+  pendant la coupure sont aussi prises en compte.
 - **Rendre la main à l'IA** : dans Supabase,
   `update wa_conversations set status = 'bot' where wa_id = '...';`
 - **Session perdue** (`❌ Session déconnectée`) : supprimer `auth/` et relancer
